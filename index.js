@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const app = express();
 
@@ -13,7 +13,7 @@ app.use(express.json());
 
 
 
-console.log(process.env.DB_USER);
+//console.log(process.env.DB_USER);
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.2meybxt.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -32,10 +32,58 @@ async function run() {
     await client.connect();
 
 
+    const productCollection = client.db('techDb').collection('products');
+    //const reviewCollection = client.db('techDb').collection('reviews');
+    const cartCollection = client.db('techDb').collection('carts');
 
 
 
+    // products related apis
+    app.get('/products', async (req, res) => {
+
+
+      // const queryObj = {}
+     
+      // const tag = req.queryObj.tag;
+
+      // if(tag){
+      //   queryObj.tag = tag
+      // }
+      // const cursor = productCollection.find(queryObj)
+
+
+        const cursor = productCollection.find()
+        const result = await cursor.toArray()
+        res.send(result)
+      });
+
+      app.get('/products/:id', async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const product = await productCollection.findOne(query);
+        res.send(product);
+    });
+
+
+    //carts collection
+    app.get('/carts', async (req, res) => {
+      const email = req.query.email;
+      const query = { email: email };
+      const result = await cartCollection.find(query).toArray();
+      res.send(result);
+    });
     
+    app.post('/carts', async (req, res) => {
+      const cartItem = req.body;
+      const result = await cartCollection.insertOne(cartItem);
+      res.send(result)
+    });
+
+
+
+
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
@@ -45,9 +93,6 @@ async function run() {
   }
 }
 run().catch(console.dir);
-
-
-
 
 
 app.get('/', (req, res) => {
