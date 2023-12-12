@@ -35,23 +35,27 @@ async function run() {
     const productCollection = client.db('techDb').collection('products');
     //const reviewCollection = client.db('techDb').collection('reviews');
     const cartCollection = client.db('techDb').collection('carts');
+    const userCollection = client.db("techDb").collection("users");
+
+
+     // users related api
+     app.post('/users', async (req, res) => {
+      const user = req.body;
+      // insert email if user doesnt exists: 
+      const query = { email: user.email }
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: 'user already exists', insertedId: null })
+      }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
+
 
 
 
     // products related apis
     app.get('/products', async (req, res) => {
-
-
-      // const queryObj = {}
-     
-      // const tag = req.queryObj.tag;
-
-      // if(tag){
-      //   queryObj.tag = tag
-      // }
-      // const cursor = productCollection.find(queryObj)
-
-
         const cursor = productCollection.find()
         const result = await cursor.toArray()
         res.send(result)
