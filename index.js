@@ -156,6 +156,13 @@ async function run() {
     });
 
 
+    app.post('/product', async (req, res) => {
+      const item = req.body;
+      const result = await productCollection.insertOne(item);
+      res.send(result);
+    });
+
+
     //carts collection
     app.get('/carts', async (req, res) => {
       const email = req.query.email;
