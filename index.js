@@ -5,6 +5,14 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const app = express();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const formData = require('form-data');
+const Mailgun = require('mailgun.js');
+const mailgun = new Mailgun(formData);
+
+const mg = mailgun.client({
+  username: 'api',
+  key: process.env.MAIL_GUN_API_KEY,
+});
 
 const port = process.env.PORT || 1000;
 
@@ -31,11 +39,11 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    //await client.connect();
 
 
     const productCollection = client.db('techDb').collection('products');
-    //const reviewCollection = client.db('techDb').collection('reviews');
+    const reviewCollection = client.db('techDb').collection('reviews');
     const cartCollection = client.db('techDb').collection('carts');
     const userCollection = client.db("techDb").collection("users");
     const paymentCollection = client.db("techDb").collection("payments");
@@ -81,9 +89,9 @@ async function run() {
 
 
 
-     // users related api
-     app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-       //console.log(req.headers);
+    // users related api
+    app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
+      //console.log(req.headers);
       const result = await userCollection.find().toArray();
       res.send(result);
     });
@@ -107,7 +115,7 @@ async function run() {
     })
 
 
-     app.post('/users', async (req, res) => {
+    app.post('/users', async (req, res) => {
       const user = req.body;
       // insert email if user doesnt exists: 
       const query = { email: user.email }
@@ -146,16 +154,16 @@ async function run() {
 
     // products related apis
     app.get('/products', async (req, res) => {
-        const cursor = productCollection.find()
-        const result = await cursor.toArray()
-        res.send(result)
-      });
+      const cursor = productCollection.find()
+      const result = await cursor.toArray()
+      res.send(result)
+    });
 
-      app.get('/products/:id', async (req, res) => {
-        const id = req.params.id;
-        const query = { _id: new ObjectId(id) };
-        const result = await productCollection.findOne(query);
-        res.send(result);
+    app.get('/products/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await productCollection.findOne(query);
+      res.send(result);
     });
 
 
@@ -243,7 +251,7 @@ async function run() {
       res.send(result);
     });
 
-    
+
 
     app.post('/payments', async (req, res) => {
       const payment = req.body;
@@ -259,13 +267,49 @@ async function run() {
 
       const deleteResult = await cartCollection.deleteMany(query);
 
+
+      //send user email  about payment confirmation
+      mg.messages
+        .create(process.env.MAIL_SENDING_DOMAIN, {
+          from: "Mailgun Sandbox <postmaster@sandbox3f49b8994161470ea70d4485ba0fa4a2.mailgun.org>",
+          to: ["thisiszakiaaktar@gmail.com"],
+          subject: "Tech Gadgets order confirmation",
+          text: "Testing some Mailgun awesomness!",
+          html: `
+          <div>
+              <h1>Thank you for your order.</h1>
+              <h4>Your Transaction Id: <strong>${payment.transactionId}</strong></h4>
+              <p>We would like to get your feedback about our products</p>
+          </div>    
+          `
+        })
+        .then(msg => console.log(msg)) // logs response data
+        .catch(err => console.log(err)); // logs any error`;
+
+
       res.send({ paymentResult, deleteResult });
     });
 
 
+    //review releted api
+    app.get("/reviews", async (req, res) => {
+      const productName = req.query.name;
+      const query = { name: productName }
+      const result = await reviewCollection.find(query).toArray();
+      res.send(result);
+    });
 
-     // stats or analytics
-     app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
+    // adding a review in database 
+    app.post("/reviews", async (req, res) => {
+      const reviewItem = req.body;
+      const result = await reviewCollection.insertOne(reviewItem);
+      res.send(result);
+    })
+
+
+
+    // stats or analytics
+    app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
       const users = await userCollection.estimatedDocumentCount();
       const productItems = await productCollection.estimatedDocumentCount();
       const orders = await paymentCollection.estimatedDocumentCount();
@@ -278,7 +322,7 @@ async function run() {
             totalRevenue: {
               $sum: '$price'
             }
-          }  
+          }
         }
       ]).toArray();
 
@@ -294,13 +338,52 @@ async function run() {
 
 
 
+    // aggregate pipeline
+    app.get('/order-stats', verifyToken, verifyAdmin, async (req, res) => {
+      const result = await paymentCollection.aggregate([
+        {
+          $unwind: '$productItemIds'
+        },
+        {
+          $lookup: {
+            from: 'product',
+            localField: 'productItemIds',
+            foreignField: '_id',
+            as: 'productItems'
+          }
+        },
+        {
+          $unwind: '$productItems'
+        },
+        {
+          $group: {
+            _id: '$productItems.category',
+            quantity: { $sum: 1 },
+            revenue: { $sum: '$productItems.price' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            category: '$_id',
+            quantity: '$quantity',
+            revenue: '$revenue'
+          }
+        }
+      ]).toArray();
+
+      res.send(result);
+
+    })
+
+
 
 
 
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     //await client.close();
@@ -310,9 +393,9 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-    res.send('tech gadgets server is running');
-  });
-  
-  app.listen(port, () => {
-    console.log(`tech gadgets server running on ${port}`);
-  })
+  res.send('tech gadgets server is running');
+});
+
+app.listen(port, () => {
+  console.log(`tech gadgets server running on ${port}`);
+})
